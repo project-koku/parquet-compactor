@@ -1,0 +1,77 @@
+---
+apiVersion: v1
+
+kind: Template
+
+metadata:
+  name: parquet-compactor
+
+objects:
+- apiVersion: cloud.redhat.com/v1alpha1
+  kind: ClowdApp
+  metadata:
+    name: parquet-compactor
+  spec:
+    envName: ${ENV_NAME}
+    objectStore:
+    - ${S3_BUCKET_NAME}
+    jobs:
+    - name: parquet-compactor
+      schedule: ${POPULATE_SCHEDULE}
+      restartPolicy: Never
+      concurrencyPolicy: Forbid
+      startingDeadlineSeconds: ${{POPULATE_STARTING_DEADLINE}}
+      podSpec:
+        image: ${IMAGE}:${IMAGE_TAG}
+        command: ["python", "parquet-compactor/app.py"]
+        env:
+        - name: TARGET_FILE_SIZE_GB
+          value: ${TARGET_FILE_SIZE_GB}
+        - name: S3_DATA_PREFIX
+          value: ${S3_DATA_PREFIX}
+        resources:
+          requests:
+            cpu: ${CPU_REQUEST}
+            memory: ${MEMORY_REQUEST}
+          limits:
+            cpu: ${CPU_LIMIT}
+            memory: ${MEMORY_LIMIT}
+
+parameters:
+- description: The name
+  name: NAME
+  value: parquet-compactor
+- description: Initial amount of CPU
+  name: CPU_REQUEST
+  value: 500m
+- description: Initial amount of memory
+  name: MEMORY_REQUEST
+  value: 4Gi
+- description: Cpu limit of service
+  name: CPU_LIMIT
+  value: 1
+- description: memory limit of service
+  name: MEMORY_LIMIT
+  value: 8Gi
+- description: Image tag
+  name: IMAGE_TAG
+  required: true
+- description: Image name
+  name: IMAGE
+  value: quay.io/cloudservices/parquet-compactor
+- description: Determines Clowder deployment
+  name: CLOWDER_ENABLED
+  value: "true"
+- description: ClowdEnv Name
+  name: ENV_NAME
+  requred: false
+- name: POPULATE_SCHEDULE
+  value: '0 12 * * *'
+- name: POPULATE_STARTING_DEADLINE
+  value: '300'
+- name: S3_BUCKET_NAME
+  value: koku-eph-s3
+- name: TARGET_FILE_SIZE_GB
+  value: 0.5
+- name: S3_DATA_PREFIX
+  value: data/parquet/
