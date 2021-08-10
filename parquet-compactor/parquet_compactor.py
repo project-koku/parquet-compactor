@@ -58,7 +58,7 @@ class S3ParquetCompactor:
         return prefixes
 
     def get_common_prefixes_recursive(self, prefix) -> list:
-        """Return common prefixes in the bucket"""
+        """Return file lists at the leaf nodes in the bucket"""
         results = []
         paginator = self.client.get_paginator("list_objects_v2")
         result = paginator.paginate(
@@ -67,7 +67,6 @@ class S3ParquetCompactor:
         common_prefixes = list(result.search("CommonPrefixes"))
         if common_prefixes == [None]:
             results.append({prefix: list(result.search("Contents"))})
-            # results.append({prefix: list(result.search("Contents"))})
         else:
             for common_prefix in common_prefixes:
                 results.extend(
