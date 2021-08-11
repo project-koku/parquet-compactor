@@ -58,7 +58,7 @@ class S3ParquetCompactor:
         return prefixes
 
     def get_common_prefixes_recursive(self, prefix) -> list:
-        """Return common prefixes in the bucket"""
+        """Return file lists at the leaf nodes in the bucket"""
         results = []
         paginator = self.client.get_paginator("list_objects_v2")
         result = paginator.paginate(
@@ -67,7 +67,6 @@ class S3ParquetCompactor:
         common_prefixes = list(result.search("CommonPrefixes"))
         if common_prefixes == [None]:
             results.append({prefix: list(result.search("Contents"))})
-            # results.append({prefix: list(result.search("Contents"))})
         else:
             for common_prefix in common_prefixes:
                 results.extend(
@@ -80,15 +79,22 @@ class S3ParquetCompactor:
     def convert_results(self, results) -> list:
         """Convert the dictionary from boto to the info we want"""
         new_results = []
+        # We won't consider files that are already within 90%
+        # of our threshold size
+        existing_file_threshold = FILE_SIZE_BYTES * 0.9
+
         for result in results:
             for key, values in result.items():
                 key_list = []
-                file_size = 0
+                total_file_size = 0
                 for value in values:
+                    file_size = value.get("Size")
+                    if file_size >= existing_file_threshold:
+                        continue
                     key_list.append(self.path_prefix + value.get("Key"))
-                    file_size += value.get("Size")
+                    total_file_size += file_size
                 new_results.append(
-                    {self.path_prefix + key: (key_list, file_size)}
+                    {self.path_prefix + key: (key_list, total_file_size)}
                 )
         return new_results
 
