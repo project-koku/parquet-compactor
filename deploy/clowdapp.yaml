@@ -49,7 +49,7 @@ parameters:
   value: 4Gi
 - description: Cpu limit of service
   name: CPU_LIMIT
-  value: 1
+  value: "1"
 - description: memory limit of service
   name: MEMORY_LIMIT
   value: 8Gi
@@ -72,6 +72,6 @@ parameters:
 - name: S3_BUCKET_NAME
   value: koku-eph-s3
 - name: TARGET_FILE_SIZE_GB
-  value: 0.5
+  value: "0.5"
 - name: S3_DATA_PREFIX
   value: data/parquet/
