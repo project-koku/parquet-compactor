@@ -23,7 +23,7 @@ def main():
     """Run our compactor job."""
     environment = environ.Env()
     config_u_later = Configurator().configurator()
-    s3_bucket_name = environment.get_value("S3_BUCKET_NAME")
+    s3_bucket_name = environment.get_value("REQUESTED_BUCKET")
 
     S3_BUCKET = config_u_later.get_object_store_bucket(s3_bucket_name)
     S3_ENDPOINT = config_u_later.get_object_store_endpoint()
