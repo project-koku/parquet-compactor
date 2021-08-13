@@ -63,7 +63,7 @@ class EnvConfigurator:
     @staticmethod
     def get_object_store_bucket(requestedName: str = ""):
         """Obtain object store bucket."""
-        return ENVIRONMENT.get_value("S3_BUCKET_NAME", default=requestedName)
+        return ENVIRONMENT.get_value("REQUESTED_BUCKET", default=requestedName)
 
     @staticmethod
     def get_data_prefix():
