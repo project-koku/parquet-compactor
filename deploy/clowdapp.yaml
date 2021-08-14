@@ -29,6 +29,10 @@ objects:
           value: ${TARGET_FILE_SIZE_GB}
         - name: S3_DATA_PREFIX
           value: ${S3_DATA_PREFIX}
+        - name: REQUESTED_BUCKET
+          value: ${S3_BUCKET_NAME}
+        - name: CLOWDER_ENABLED
+          value: ${CLOWDER_ENABLED}
         resources:
           requests:
             cpu: ${CPU_REQUEST}
@@ -71,8 +75,6 @@ parameters:
   value: '300'
 - name: S3_BUCKET_NAME
   value: koku-eph-s3
-- name: REQUESTED_BUCKET
-  value: ${S3_BUCKET_NAME}
 - name: TARGET_FILE_SIZE_GB
   value: "0.5"
 - name: S3_DATA_PREFIX
