@@ -105,6 +105,8 @@ class S3ParquetCompactor:
         file_size = result[1]
         num_current_files = len(key_list)
         num_compacted_files = math.ceil(file_size / FILE_SIZE_BYTES)
+        if num_compacted_files == 0:
+            num_compacted_files = 1
 
         split_size = math.ceil(num_current_files / num_compacted_files)
         if split_size >= 2:
