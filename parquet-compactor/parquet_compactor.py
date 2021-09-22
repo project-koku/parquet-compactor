@@ -104,6 +104,11 @@ class S3ParquetCompactor:
         key_list = result[0]
         file_size = result[1]
         num_current_files = len(key_list)
+
+        if num_current_files == 0:
+            LOG.info("Current file total is 0; skipping compaction.")
+            return split_list
+
         num_compacted_files = math.ceil(file_size / FILE_SIZE_BYTES)
         if num_compacted_files == 0:
             num_compacted_files = 1
