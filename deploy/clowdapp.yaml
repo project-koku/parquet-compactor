@@ -68,7 +68,7 @@ parameters:
   value: "true"
 - description: ClowdEnv Name
   name: ENV_NAME
-  requred: false
+  required: false
 - name: POPULATE_SCHEDULE
   value: '0 12 * * *'
 - name: POPULATE_STARTING_DEADLINE
@@ -76,6 +76,8 @@ parameters:
 - name: S3_BUCKET_NAME
   value: koku-eph-s3
 - name: TARGET_FILE_SIZE_GB
-  value: "0.5"
+  value: "0.3"
 - name: S3_DATA_PREFIX
   value: data/parquet/
+- name: SKIP_SOURCE_TYPE_CURRENT_MONTH
+  value: "AWS,Azure"
