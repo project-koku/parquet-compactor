@@ -131,9 +131,9 @@ class S3ParquetCompactor:
                     file_inserted = True
             if not file_inserted:
                 # Insert the file into a new bin
+                split_dict[split_count].append(file_key)
+                size_dict[split_count] += file_size
                 split_count += 1
-                split_dict[split_count - 1].append(file_key)
-                size_dict[split_count - 1] += file_size
 
         return [
             file_list
