@@ -1,5 +1,8 @@
+import datetime
+import gc
 import logging
-import math
+from collections import defaultdict
+from functools import cached_property
 
 import awswrangler as wr
 import boto3
@@ -11,9 +14,15 @@ from pyarrow import ArrowException
 LOG = logging.getLogger(__name__)
 
 TARGET_FILE_SIZE_GB = environ.Env().get_value(
-    "TARGET_FILE_SIZE_GB", cast=float, default=0.5
+    "TARGET_FILE_SIZE_GB", cast=float, default=0.3
 )
 FILE_SIZE_BYTES = TARGET_FILE_SIZE_GB * pow(2, 30)
+
+SKIP_SOURCE_TYPE_CURRENT_MONTH = (
+    environ.Env()
+    .get_value("SKIP_SOURCE_TYPE_CURRENT_MONTH", default="AWS,Azure")
+    .split(",")
+)
 
 
 class S3ParquetCompactor:
@@ -44,6 +53,16 @@ class S3ParquetCompactor:
         wr.config.s3_endpoint_url = endpoint
         msg = f"Initialzed S3ParquetCompactor for {self.path_prefix}"
         LOG.info(msg)
+
+    @cached_property
+    def current_year_str(self):
+        """Return the current year as a string."""
+        return datetime.datetime.utcnow().strftime("%Y")
+
+    @cached_property
+    def current_month_str(self):
+        """Return the current month as a string."""
+        return datetime.datetime.utcnow().strftime("%m")
 
     def get_common_prefixes(self, prefix) -> list:
         """Return common prefixes in the bucket"""
@@ -79,68 +98,60 @@ class S3ParquetCompactor:
     def convert_results(self, results) -> list:
         """Convert the dictionary from boto to the info we want"""
         new_results = []
-        # We won't consider files that are already within 90%
-        # of our threshold size
-        existing_file_threshold = FILE_SIZE_BYTES * 0.9
 
         for result in results:
             for key, values in result.items():
-                key_list = []
-                total_file_size = 0
+                file_keys = []
                 for value in values:
                     file_size = value.get("Size")
-                    if file_size >= existing_file_threshold:
+                    if file_size >= FILE_SIZE_BYTES:
                         continue
-                    key_list.append(self.path_prefix + value.get("Key"))
-                    total_file_size += file_size
-                new_results.append(
-                    {self.path_prefix + key: (key_list, total_file_size)}
-                )
+                    file_keys.append(
+                        (self.path_prefix + value.get("Key"), file_size)
+                    )
+                new_results.append({self.path_prefix + key: file_keys})
         return new_results
 
-    def determine_file_splits(self, result) -> list:
+    def determine_file_splits(self, file_tuples) -> list:
         """Return a list of lists."""
-        split_list = []
-        key_list = result[0]
-        file_size = result[1]
-        num_current_files = len(key_list)
+        split_dict = defaultdict(list)
+        size_dict = defaultdict(float)
 
-        if num_current_files == 0:
-            LOG.info("Current file total is 0; skipping compaction.")
-            return split_list
+        split_count = 1
+        # Loop through our list of files in this S3 "directory"
+        for file_tuple in file_tuples:
+            file_key = file_tuple[0]
+            file_size = file_tuple[1]
+            file_inserted = False
+            # See if this file can be combined with another
+            for i in range(split_count):
+                if size_dict[i] + file_size <= FILE_SIZE_BYTES:
+                    split_dict[i].append(file_key)
+                    size_dict[i] += file_size
+                    file_inserted = True
+            if not file_inserted:
+                # Insert the file into a new bin
+                split_dict[split_count].append(file_key)
+                size_dict[split_count] += file_size
+                split_count += 1
 
-        num_compacted_files = math.ceil(file_size / FILE_SIZE_BYTES)
-        if num_compacted_files == 0:
-            num_compacted_files = 1
-
-        split_size = math.ceil(num_current_files / num_compacted_files)
-        if split_size >= 2:
-            msg = (
-                f"Compacting from {num_current_files} "
-                f"to {num_compacted_files} "
-                f"files using {split_size} files per compaction."
-            )
-            LOG.info(msg)
-            for i in range(0, len(key_list), split_size):
-                split_list.append(key_list[i : i + split_size])  # noqa: E203
-        else:
-            msg = (
-                f"Existing files: {key_list} are already approx. "
-                f"{file_size * pow(2, -30) / num_current_files} GB each."
-            )
-            LOG.info(msg)
-            LOG.info("Skipping compaction.")
-        return split_list
+        return [
+            file_list
+            for file_list in split_dict.values()
+            if len(file_list) > 1
+        ]
 
     def merge_files_in_dataframe(
         self, s3_path, file_name, file_number, file_list
     ) -> None:
         """Return a Pandas DataFrame with merged data from multiple files"""
+        success = False
+        msg = f"Reading {file_list} from S3."
+        LOG.info(msg)
         df = wr.s3.read_parquet(path=file_list, boto3_session=self.session)
-
         file_path = f"{s3_path}{file_name}_{file_number}.parquet"
         try:
-            msg = f"Writing file {file_path}"
+            msg = f"Combining files. Writing file {file_path}"
             LOG.info(msg)
             wr.s3.to_parquet(
                 df=df,
@@ -149,12 +160,18 @@ class S3ParquetCompactor:
                 dataset=False,
                 boto3_session=self.session,
             )
-            return True
+
+            success = True
         except (ArrowException, EmptyDataFrame) as err:
             msg = f"Failed to merge parquet files at {s3_path}."
             LOG.warning(msg)
             LOG.warning(err)
-            return False
+            success = False
+        finally:
+            # Force a free up on memory
+            del df
+            gc.collect()
+        return success
 
     def remove_uncompacted_files(self, file_list) -> None:
         """Remove the original small files that have been compacted."""
@@ -172,6 +189,29 @@ class S3ParquetCompactor:
         LOG.info(msg)
         return base_file_name
 
+    def should_skip_compacting(self, path):
+        """Determine if we should skip compacting these files.
+
+        Because AWS and Azure data are overwritten during the current month,
+        the compacted files would be deleted on the next processing run.
+        """
+        is_current_month_data = (
+            f"year={self.current_year_str}" in path
+            and f"month={self.current_month_str}" in path
+        )
+        is_skippable_source_type = any(
+            [
+                source_type in path
+                for source_type in SKIP_SOURCE_TYPE_CURRENT_MONTH
+            ]
+        )
+
+        return (
+            True
+            if is_current_month_data and is_skippable_source_type
+            else False
+        )
+
     def compact(self) -> None:
         """Crawl the S3 bucket and compact parquet files."""
         account_level_prefixes = self.get_common_prefixes(self.data_prefix)
@@ -182,10 +222,14 @@ class S3ParquetCompactor:
             results = self.get_common_prefixes_recursive(prefix)
             results = self.convert_results(results)
             for result in results:
-                for path, file_tuple in result.items():
+                for path, file_tuples in result.items():
+                    if self.should_skip_compacting(path):
+                        msg = f"Skipping compacting for {path}."
+                        LOG.info(msg)
+                        continue
                     msg = f"Determing file compaction for {path}"
                     LOG.info(msg)
-                    file_splits = self.determine_file_splits(file_tuple)
+                    file_splits = self.determine_file_splits(file_tuples)
                     if file_splits:
                         base_file_name = self.determine_base_file_name(path)
                         for i, file_split in enumerate(file_splits):
@@ -194,3 +238,5 @@ class S3ParquetCompactor:
                             )
                             if success:
                                 self.remove_uncompacted_files(file_split)
+                    else:
+                        LOG.info("No files to compact. Skipping compaction.")
