@@ -66,10 +66,7 @@ ENV VIRTUAL_ENV=${APP_ROOT}/.venv
 ENV \
     # Add the koku virtual env bin to the front of PATH.
     # This activates the virtual env for all subsequent python calls.
-    PATH="$VIRTUAL_ENV/bin:$PATH" \
-    PROMETHEUS_MULTIPROC_DIR=/tmp
-
-
+    PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Copy application files to the image.
 COPY parquet-compactor parquet-compactor
