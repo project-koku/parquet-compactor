@@ -88,6 +88,8 @@ class S3ParquetCompactor:
             results.append({prefix: list(result.search("Contents"))})
         else:
             for common_prefix in common_prefixes:
+                if common_prefix is None:
+                    continue
                 results.extend(
                     self.get_common_prefixes_recursive(
                         common_prefix.get("Prefix")
