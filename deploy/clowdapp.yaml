@@ -34,7 +34,7 @@ objects:
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
         - name: CHUNKED_ROWS
-          value: ${CHUNKED_ROWS}
+          value: ${{CHUNKED_ROWS}}
         resources:
           requests:
             cpu: ${CPU_REQUEST}
