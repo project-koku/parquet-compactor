@@ -34,7 +34,7 @@ objects:
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
         - name: CHUNKED_ROWS
-          value: ${{CHUNKED_ROWS}}
+          value: ${CHUNKED_ROWS}
         resources:
           requests:
             cpu: ${CPU_REQUEST}
@@ -84,4 +84,4 @@ parameters:
 - name: SKIP_SOURCE_TYPE_CURRENT_MONTH
   value: "AWS,Azure"
 - name: CHUNKED_ROWS
-  value: 10000000
+  value: "1000000"
