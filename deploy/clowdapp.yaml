@@ -33,6 +33,8 @@ objects:
           value: ${S3_BUCKET_NAME}
         - name: CLOWDER_ENABLED
           value: ${CLOWDER_ENABLED}
+        - name: CHUNKED_ROWS
+          value: ${CHUNKED_ROWS}
         resources:
           requests:
             cpu: ${CPU_REQUEST}
@@ -81,3 +83,5 @@ parameters:
   value: data/parquet/
 - name: SKIP_SOURCE_TYPE_CURRENT_MONTH
   value: "AWS,Azure"
+- name: CHUNKED_ROWS
+  value: 10000000

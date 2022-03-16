@@ -11,18 +11,14 @@ from awswrangler.exceptions import EmptyDataFrame
 from pyarrow import ArrowException
 
 
+ENV = environ.Env()
 LOG = logging.getLogger(__name__)
 
-TARGET_FILE_SIZE_GB = environ.Env().get_value(
-    "TARGET_FILE_SIZE_GB", cast=float, default=0.3
-)
+CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=10_000_000)
+TARGET_FILE_SIZE_GB = ENV.float("TARGET_FILE_SIZE_GB", default=0.3)
 FILE_SIZE_BYTES = TARGET_FILE_SIZE_GB * pow(2, 30)
 
-SKIP_SOURCE_TYPE_CURRENT_MONTH = (
-    environ.Env()
-    .get_value("SKIP_SOURCE_TYPE_CURRENT_MONTH", default="AWS,Azure")
-    .split(",")
-)
+SKIP_SOURCE_TYPE_CURRENT_MONTH = ENV.list("SKIP_SOURCE_TYPE_CURRENT_MONTH", default="AWS,Azure")
 
 
 class S3ParquetCompactor:
@@ -143,36 +139,32 @@ class S3ParquetCompactor:
             if len(file_list) > 1
         ]
 
-    def merge_files_in_dataframe(
-        self, s3_path, file_name, file_number, file_list
-    ) -> None:
+    def merge_files_in_dataframe(self, s3_path, file_name, file_list) -> None:
         """Return a Pandas DataFrame with merged data from multiple files"""
-        success = False
+        success = True
         msg = f"Reading {file_list} from S3."
         LOG.info(msg)
-        df = wr.s3.read_parquet(path=file_list, boto3_session=self.session)
-        file_path = f"{s3_path}{file_name}_{file_number}.parquet"
-        try:
-            msg = f"Combining files. Writing file {file_path}"
-            LOG.info(msg)
-            wr.s3.to_parquet(
-                df=df,
-                path=file_path,
-                compression="snappy",
-                dataset=False,
-                boto3_session=self.session,
-            )
-
-            success = True
-        except (ArrowException, EmptyDataFrame) as err:
-            msg = f"Failed to merge parquet files at {s3_path}."
-            LOG.warning(msg)
-            LOG.warning(err)
-            success = False
-        finally:
-            # Force a free up on memory
-            del df
-            gc.collect()
+        for file_number, df in enumerate(wr.s3.read_parquet(path=file_list, boto3_session=self.session, chunked=CHUNKED_ROWS)):
+            file_path = f"{s3_path}{file_name}_{file_number}.parquet"
+            try:
+                msg = f"Combining files. Writing file {file_path}"
+                LOG.info(msg)
+                wr.s3.to_parquet(
+                    df=df,
+                    path=file_path,
+                    compression="snappy",
+                    dataset=False,
+                    boto3_session=self.session,
+                )
+            except (ArrowException, EmptyDataFrame) as err:
+                msg = f"Failed to merge parquet files at {s3_path}."
+                LOG.warning(msg)
+                LOG.warning(err)
+                success = False
+            finally:
+                # Force a free up on memory
+                del df
+                gc.collect()
         return success
 
     def remove_uncompacted_files(self, file_list) -> None:
@@ -231,14 +223,14 @@ class S3ParquetCompactor:
                         continue
                     msg = f"Determing file compaction for {path}"
                     LOG.info(msg)
-                    file_splits = self.determine_file_splits(file_tuples)
-                    if file_splits:
-                        base_file_name = self.determine_base_file_name(path)
-                        for i, file_split in enumerate(file_splits):
-                            success = self.merge_files_in_dataframe(
-                                path, base_file_name, i, file_split
-                            )
-                            if success:
-                                self.remove_uncompacted_files(file_split)
-                    else:
+                    if len(file_tuples) <= 1:
                         LOG.info("No files to compact. Skipping compaction.")
+                        continue
+                    file_list = [file_tuple[0] for file_tuple in file_tuples]
+                    base_file_name = self.determine_base_file_name(path)
+                    success = self.merge_files_in_dataframe(
+                        path, base_file_name, file_list
+                    )
+                    if success:
+                        self.remove_uncompacted_files(file_list)
+
