@@ -1,6 +1,7 @@
 import datetime
 import gc
 import logging
+import re
 from collections import defaultdict
 from functools import cached_property
 
@@ -18,7 +19,9 @@ CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=10_000_000)
 TARGET_FILE_SIZE_GB = ENV.float("TARGET_FILE_SIZE_GB", default=0.3)
 FILE_SIZE_BYTES = TARGET_FILE_SIZE_GB * pow(2, 30)
 
-SKIP_SOURCE_TYPE_CURRENT_MONTH = ENV.list("SKIP_SOURCE_TYPE_CURRENT_MONTH", default=["AWS", "Azure"])
+SKIP_SOURCE_TYPE_CURRENT_MONTH = ENV.list(
+    "SKIP_SOURCE_TYPE_CURRENT_MONTH", default=["AWS", "Azure"]
+)
 
 
 class S3ParquetCompactor:
@@ -146,7 +149,13 @@ class S3ParquetCompactor:
         success = True
         msg = f"Reading {len(file_list)} number of files from S3: {file_list}"
         LOG.info(msg)
-        for file_number, df in enumerate(wr.s3.read_parquet(path=file_list, boto3_session=self.session, chunked=CHUNKED_ROWS)):
+        for file_number, df in enumerate(
+            wr.s3.read_parquet(
+                path=file_list,
+                boto3_session=self.session,
+                chunked=CHUNKED_ROWS,
+            )
+        ):
             file_path = f"{s3_path}{file_name}_{file_number}.parquet"
             try:
                 msg = f"Combining files. Writing file {file_path}"
@@ -196,17 +205,30 @@ class S3ParquetCompactor:
             and f"month={self.current_month_str}" in path
         )
         is_skippable_source_type = any(
-            [
-                source_type in path
-                for source_type in SKIP_SOURCE_TYPE_CURRENT_MONTH
-            ]
+            source_type in path
+            for source_type in SKIP_SOURCE_TYPE_CURRENT_MONTH
         )
+        return is_current_month_data and is_skippable_source_type
 
-        return (
-            True
-            if is_current_month_data and is_skippable_source_type
-            else False
-        )
+    def filter_compacted(self, basename, filelist):
+        """Remove any files that already contain the basename except the last
+        file in the list.
+
+        The last file probably does not contain the full CHUNKED_ROWS, so it
+        can be compacted gain.
+        """
+        result = []
+        compacted = []
+        for file in filelist:
+            if re.search(f"/{basename}_(.+?).parquet", file):
+                compacted.append(file)
+            else:
+                # non-matching regex pattern indicates a new file
+                result.append(file)
+        if compacted:
+            last_compacted = sorted(compacted)[-1]
+            result = [last_compacted] + result
+        return result
 
     def compact(self) -> None:
         """Crawl the S3 bucket and compact parquet files."""
@@ -230,6 +252,9 @@ class S3ParquetCompactor:
                         continue
                     file_list = [file_tuple[0] for file_tuple in file_tuples]
                     base_file_name = self.determine_base_file_name(path)
+                    file_list = self.filter_compacted(
+                        base_file_name, file_list
+                    )
                     success = self.merge_files_in_dataframe(
                         path, base_file_name, file_list
                     )
