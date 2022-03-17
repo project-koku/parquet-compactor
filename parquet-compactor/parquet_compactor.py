@@ -101,6 +101,8 @@ class S3ParquetCompactor:
             for key, values in result.items():
                 file_keys = []
                 for value in values:
+                    if value is None:
+                        continue
                     file_size = value.get("Size")
                     if file_size >= FILE_SIZE_BYTES:
                         continue
@@ -142,7 +144,7 @@ class S3ParquetCompactor:
     def merge_files_in_dataframe(self, s3_path, file_name, file_list) -> None:
         """Return a Pandas DataFrame with merged data from multiple files"""
         success = True
-        msg = f"Reading {file_list} from S3."
+        msg = f"Reading {len(file_list)} number of files from S3: {file_list}"
         LOG.info(msg)
         for file_number, df in enumerate(wr.s3.read_parquet(path=file_list, boto3_session=self.session, chunked=CHUNKED_ROWS)):
             file_path = f"{s3_path}{file_name}_{file_number}.parquet"
@@ -233,4 +235,3 @@ class S3ParquetCompactor:
                     )
                     if success:
                         self.remove_uncompacted_files(file_list)
-
