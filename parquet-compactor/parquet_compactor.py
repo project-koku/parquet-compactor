@@ -101,6 +101,8 @@ class S3ParquetCompactor:
             for key, values in result.items():
                 file_keys = []
                 for value in values:
+                    if value is None:
+                        continue
                     file_size = value.get("Size")
                     if file_size >= FILE_SIZE_BYTES:
                         continue
@@ -233,4 +235,3 @@ class S3ParquetCompactor:
                     )
                     if success:
                         self.remove_uncompacted_files(file_list)
-
