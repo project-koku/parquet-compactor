@@ -2,6 +2,7 @@ import datetime
 import gc
 import logging
 import re
+import uuid
 from collections import defaultdict
 from functools import cached_property
 
@@ -156,7 +157,7 @@ class S3ParquetCompactor:
                 chunked=CHUNKED_ROWS,
             )
         ):
-            file_path = f"{s3_path}{file_name}_{file_number}.parquet"
+            file_path = f"{s3_path}{file_name}_{uuid.uuid4()}.parquet"
             try:
                 msg = f"Combining files. Writing file {file_path}"
                 LOG.info(msg)
