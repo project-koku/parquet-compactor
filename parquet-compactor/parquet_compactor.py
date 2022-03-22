@@ -16,7 +16,7 @@ from pyarrow import ArrowException
 ENV = environ.Env()
 LOG = logging.getLogger(__name__)
 
-CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=10_000_000)
+CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=1_000_000)
 TARGET_FILE_SIZE_GB = ENV.float("TARGET_FILE_SIZE_GB", default=0.3)
 FILE_SIZE_BYTES = TARGET_FILE_SIZE_GB * pow(2, 30)
 
@@ -111,7 +111,11 @@ class S3ParquetCompactor:
                     if file_size >= FILE_SIZE_BYTES:
                         continue
                     file_keys.append(
-                        (self.path_prefix + value.get("Key"), file_size)
+                        (
+                            self.path_prefix + value.get("Key"),
+                            file_size,
+                            value.get("LastModified"),
+                        )
                     )
                 new_results.append({self.path_prefix + key: file_keys})
         return new_results
@@ -150,14 +154,10 @@ class S3ParquetCompactor:
         success = True
         msg = f"Reading {len(file_list)} number of files from S3: {file_list}"
         LOG.info(msg)
-        for file_number, df in enumerate(
-            wr.s3.read_parquet(
-                path=file_list,
-                boto3_session=self.session,
-                chunked=CHUNKED_ROWS,
-            )
+        for df in wr.s3.read_parquet(
+            path=file_list, boto3_session=self.session, chunked=CHUNKED_ROWS
         ):
-            file_path = f"{s3_path}{file_name}_{uuid.uuid4()}.parquet"
+            file_path = f"{s3_path}{file_name}_{uuid.uuid4().hex}.parquet"
             try:
                 msg = f"Combining files. Writing file {file_path}"
                 LOG.info(msg)
@@ -211,23 +211,29 @@ class S3ParquetCompactor:
         )
         return is_current_month_data and is_skippable_source_type
 
-    def filter_compacted(self, basename, filelist):
+    def filter_compacted(self, basename, file_tuple):
         """Remove any files that already contain the basename except the last
         file in the list.
 
         The last file probably does not contain the full CHUNKED_ROWS, so it
         can be compacted gain.
         """
+        LOG.info(
+            f"original list: length: {len(file_tuple)}: "
+            f"{[t[0] for t in file_tuple]}"
+        )
         result = []
         compacted = []
-        for file in filelist:
-            if re.search(f"/{basename}_(.+?).parquet", file):
-                compacted.append(file)
+        for file, _, last_modified in file_tuple:
+            regex1 = re.compile(f"/{basename}_[0-9a-f]{{32}}.parquet")
+            regex2 = re.compile(f"/{basename}_[0-9]+.parquet")
+            if regex1.search(file) or regex2.search(file):
+                compacted.append((file, last_modified))
             else:
                 # non-matching regex pattern indicates a new file
                 result.append(file)
         if compacted:
-            last_compacted = sorted(compacted)[-1]
+            last_compacted = sorted(compacted, key=lambda x: x[1])[-1][0]
             result = [last_compacted] + result
         return result
 
@@ -251,10 +257,9 @@ class S3ParquetCompactor:
                     if len(file_tuples) <= 1:
                         LOG.info("No files to compact. Skipping compaction.")
                         continue
-                    file_list = [file_tuple[0] for file_tuple in file_tuples]
                     base_file_name = self.determine_base_file_name(path)
                     file_list = self.filter_compacted(
-                        base_file_name, file_list
+                        base_file_name, file_tuples
                     )
                     success = self.merge_files_in_dataframe(
                         path, base_file_name, file_list
