@@ -16,7 +16,7 @@ from pyarrow import ArrowException
 ENV = environ.Env()
 LOG = logging.getLogger(__name__)
 
-CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=10_000_000)
+CHUNKED_ROWS = ENV.int("CHUNKED_ROWS", default=1_000_000)
 TARGET_FILE_SIZE_GB = ENV.float("TARGET_FILE_SIZE_GB", default=0.3)
 FILE_SIZE_BYTES = TARGET_FILE_SIZE_GB * pow(2, 30)
 
@@ -211,16 +211,20 @@ class S3ParquetCompactor:
         )
         return is_current_month_data and is_skippable_source_type
 
-    def filter_compacted(self, basename, filelist):
+    def filter_compacted(self, basename, file_tuple):
         """Remove any files that already contain the basename except the last
         file in the list.
 
         The last file probably does not contain the full CHUNKED_ROWS, so it
         can be compacted gain.
         """
+        LOG.info(
+            f"original list: length: {len(file_tuple)}: "
+            f"{[t[0] for t in file_tuple]}"
+        )
         result = []
         compacted = []
-        for file, _, last_modified in filelist:
+        for file, _, last_modified in file_tuple:
             regex1 = re.compile(f"/{basename}_[0-9a-f]{{32}}.parquet")
             regex2 = re.compile(f"/{basename}_[0-9]+.parquet")
             if regex1.search(file) or regex2.search(file):
