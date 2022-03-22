@@ -253,10 +253,9 @@ class S3ParquetCompactor:
                     if len(file_tuples) <= 1:
                         LOG.info("No files to compact. Skipping compaction.")
                         continue
-                    file_list = [file_tuple[0] for file_tuple in file_tuples]
                     base_file_name = self.determine_base_file_name(path)
                     file_list = self.filter_compacted(
-                        base_file_name, file_list
+                        base_file_name, file_tuples
                     )
                     success = self.merge_files_in_dataframe(
                         path, base_file_name, file_list
