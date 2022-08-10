@@ -233,10 +233,15 @@ class S3ParquetCompactor:
                 compacted.append((file, last_modified))
             else:
                 # non-matching regex pattern indicates a new file
+                LOG.info(f"New file found {path}")
                 if "GCP" in path:
                     # Avoid compacting GCP files that are still being updated
+                    LOG.info("Check if GCP files should be compacted")
+                    LOG.info(f"\n LAST_MODIFIED: {last_modified.date()} vs CHECK: {check_time.date()} \n")
                     if last_modified.date() < check_time.date():
                         result.append(file)
+                    else:
+                        LOG.info(f"Skip compacting on GCP file: {file}")
                 else:
                     result.append(file)
         if compacted:
