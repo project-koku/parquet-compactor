@@ -212,7 +212,7 @@ class S3ParquetCompactor:
         )
         return is_current_month_data and is_skippable_source_type
 
-    def filter_compacted(self, basename, file_tuple, path):
+    def filter_compacted(self, basename, file_tuple):
         """Remove any files that already contain the basename except the last
         file in the list.
 
@@ -223,7 +223,7 @@ class S3ParquetCompactor:
             f"original list: length: {len(file_tuple)}: "
             f"{[t[0] for t in file_tuple]}"
         )
-        check_time = datetime.datetime.utcnow() + relativedelta(days=-5)
+        check_date = datetime.datetime.utcnow() + relativedelta(days=-5)
         result = []
         compacted = []
         for file, _, last_modified in file_tuple:
@@ -233,12 +233,13 @@ class S3ParquetCompactor:
                 compacted.append((file, last_modified))
             else:
                 # non-matching regex pattern indicates a new file
-                LOG.info(f"New file found {path}")
-                if "GCP" in path:
+                LOG.info(f"New file found {file}")
+                if "GCP" in file:
                     # Avoid compacting GCP files that are still being updated
-                    LOG.info("Check if GCP files should be compacted")
-                    LOG.info(f"\n LAST_MODIFIED: {last_modified.date()} vs CHECK: {check_time.date()} \n")
-                    if last_modified.date() < check_time.date():
+                    match = re.search(r'\d{4}-\d{2}-\d{2}', file)
+                    file_date = datetime.strptime(match.group(), '%Y-%m-%d').date()
+                    LOG.info("Check if GCP file should be compacted based from dates. \nFile date: {file_date} \nPre-compact date: {check_date.date()}")
+                    if file_date < check_date.date():
                         result.append(file)
                     else:
                         LOG.info(f"Skip compacting on GCP file: {file}")
@@ -268,7 +269,7 @@ class S3ParquetCompactor:
                     LOG.info(msg)
                     base_file_name = self.determine_base_file_name(path)
                     file_list = self.filter_compacted(
-                        base_file_name, file_tuples, path
+                        base_file_name, file_tuples
                     )
                     if len(file_list) <= 1:
                         LOG.info("No files to compact. Skipping compaction.")
