@@ -237,7 +237,7 @@ class S3ParquetCompactor:
                 if "GCP" in file:
                     # Avoid compacting GCP files that are still being updated
                     match = re.search(r'\d{4}-\d{2}-\d{2}', file)
-                    file_date = datetime.strptime(match.group(), '%Y-%m-%d').date()
+                    file_date = datetime.datetime.strptime(match.group(), '%Y-%m-%d').date()
                     LOG.info("Check if GCP file should be compacted based from dates. \nFile date: {file_date} \nPre-compact date: {check_date.date()}")
                     if file_date < check_date.date():
                         result.append(file)
