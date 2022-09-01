@@ -4,13 +4,13 @@ import logging
 import re
 import uuid
 from collections import defaultdict
-from dateutil.relativedelta import relativedelta
 from functools import cached_property
 
 import awswrangler as wr
 import boto3
 import environ
 from awswrangler.exceptions import EmptyDataFrame
+from dateutil.relativedelta import relativedelta
 from pyarrow import ArrowException
 
 
@@ -180,6 +180,51 @@ class S3ParquetCompactor:
                 gc.collect()
         return success
 
+    def merge_files_in_dataframe_gcp(
+        self, s3_path, file_name, file_list
+    ) -> None:
+        """Return a boolean whether files were successfully merged"""
+        success = True
+        dates = sorted({f.split("_")[1] for f in file_list})
+        files_per_date = {}
+        for date in dates:
+            files = [f for f in file_list if date in f]
+            files_per_date[date] = files
+        for date, file_list in files_per_date.items():
+            msg = (
+                f"GCP: For {date}, reading {len(file_list)}"
+                f" number of files from S3: {file_list}"
+            )
+            LOG.info(msg)
+            for df in wr.s3.read_parquet(
+                path=file_list,
+                boto3_session=self.session,
+                chunked=CHUNKED_ROWS,
+            ):
+                file_path = (
+                    f"{s3_path}{file_name}_{date}_{uuid.uuid4().hex}.parquet"
+                )
+                try:
+                    msg = f"Combining files. Writing file {file_path}"
+                    LOG.info(msg)
+                    wr.s3.to_parquet(
+                        df=df,
+                        path=file_path,
+                        compression="snappy",
+                        dataset=False,
+                        boto3_session=self.session,
+                    )
+                except (ArrowException, EmptyDataFrame) as err:
+                    msg = f"Failed to merge parquet files at {s3_path}."
+                    LOG.warning(msg)
+                    LOG.warning(err)
+                    success = False
+                finally:
+                    # Force a free up on memory
+                    del df
+                    gc.collect()
+        return success
+
     def remove_uncompacted_files(self, file_list) -> None:
         """Remove the original small files that have been compacted."""
         msg = f"Deleting files: {file_list}"
@@ -236,10 +281,12 @@ class S3ParquetCompactor:
                 LOG.info(f"New file found {file}")
                 if "GCP" in file:
                     # Avoid compacting GCP files that are still being updated
-                    match = re.search(r'\d{4}-\d{2}-\d{2}', file)
+                    match = re.search(r"\d{4}-\d{2}-\d{2}", file)
                     if not match:
                         continue
-                    file_date = datetime.datetime.strptime(match.group(), '%Y-%m-%d').date()
+                    file_date = datetime.datetime.strptime(
+                        match.group(), "%Y-%m-%d"
+                    ).date()
                     if file_date < check_date.date():
                         result.append(file)
                     else:
@@ -275,8 +322,13 @@ class S3ParquetCompactor:
                     if len(file_list) <= 1:
                         LOG.info("No files to compact. Skipping compaction.")
                         continue
-                    success = self.merge_files_in_dataframe(
-                        path, base_file_name, file_list
-                    )
+                    if "GCP" in path:
+                        success = self.merge_files_in_dataframe_gcp(
+                            path, base_file_name, file_list
+                        )
+                    else:
+                        success = self.merge_files_in_dataframe(
+                            path, base_file_name, file_list
+                        )
                     if success:
                         self.remove_uncompacted_files(file_list)
