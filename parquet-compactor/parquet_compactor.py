@@ -185,6 +185,7 @@ class S3ParquetCompactor:
     ) -> None:
         """Return a boolean whether files were successfully merged"""
         success = True
+        invoice_month = file_list[0].split("_")[0]
         dates = sorted({f.split("_")[1] for f in file_list})
         files_per_date = {}
         for date in dates:
@@ -202,7 +203,7 @@ class S3ParquetCompactor:
                 chunked=CHUNKED_ROWS,
             ):
                 file_path = (
-                    f"{s3_path}{file_name}_{date}_{uuid.uuid4().hex}.parquet"
+                    f"{invoice_month}_{date}_{s3_path}{file_name}{uuid.uuid4().hex}.parquet"
                 )
                 try:
                     msg = f"Combining files. Writing file {file_path}"
