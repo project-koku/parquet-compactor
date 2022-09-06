@@ -185,15 +185,13 @@ class S3ParquetCompactor:
     ) -> None:
         """Return a boolean whether files were successfully merged"""
         success = True
+        invoice_month = file_list[0].split("_")[0].split("/")[-1]
         dates = sorted({f.split("_")[1] for f in file_list})
         files_per_date = {}
         for date in dates:
             files = [f for f in file_list if date in f]
             files_per_date[date] = files
         for date, file_list in files_per_date.items():
-            invoice_month = datetime.datetime.strptime(
-                date, "%Y-%m-%d"
-            ).strftime("%Y%m")
             msg = (
                 f"GCP: For {date}, reading {len(file_list)}"
                 f" number of files from S3: {file_list}"
