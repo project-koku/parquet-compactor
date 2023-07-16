@@ -264,7 +264,9 @@ class S3ParquetCompactor:
         file in the list.
 
         The last file probably does not contain the full CHUNKED_ROWS, so it
-        can be compacted gain.
+        can be compacted again.
+
+        Skip incomplete files
         """
         LOG.info(
             f"original list: length: {len(file_tuple)}: "
@@ -281,20 +283,10 @@ class S3ParquetCompactor:
             else:
                 # non-matching regex pattern indicates a new file
                 LOG.info(f"New file found {file}")
-                if "GCP" in file:
-                    # Avoid compacting GCP files that are still being updated
-                    match = re.search(r"\d{4}-\d{2}-\d{2}", file)
-                    if not match:
-                        continue
-                    file_date = datetime.datetime.strptime(
-                        match.group(), "%Y-%m-%d"
-                    ).date()
-                    if file_date < check_date.date():
-                        result.append(file)
-                    else:
-                        LOG.info(f"Skip compacting GCP file: {file}")
-                else:
+                if last_modified.date() < check_date.date():
                     result.append(file)
+                else:
+                    LOG.info(f"Skip compacting non complete file: {file}")
         if compacted:
             last_compacted = sorted(compacted, key=lambda x: x[1])[-1][0]
             result = [last_compacted] + result
